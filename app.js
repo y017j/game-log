@@ -1,13 +1,13 @@
 /* ==========================================================
    ゲームログ - app.js
    - Supabase (Auth + Postgres) を使ったログイン / データ共有
-   - IDは内部的に「id@gamelog.local」という架空メールに変換してSupabase Authに渡す
+   - IDは内部的に「id@users.gamelog-app.com」という架空メールに変換してSupabase Authに渡す
    - 自分のゲームは編集可、他人のゲームは閲覧のみ
 ========================================================== */
 (function(){
 'use strict';
 
-const FAKE_EMAIL_DOMAIN = '@gamelog.local';
+const FAKE_EMAIL_DOMAIN = '@users.gamelog-app.com';
 const STATUSES = [
   {key:'playing', label:'プレイ中', color:'var(--blue)'},
   {key:'cleared', label:'クリア', color:'var(--green)'},
