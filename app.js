@@ -4,6 +4,8 @@
    - IDは内部的に「id@gamelog.local」という架空メールに変換してSupabase Authに渡す
    - 自分のゲームは編集可、他人のゲームは閲覧のみ
 ========================================================== */
+(function(){
+'use strict';
 
 const FAKE_EMAIL_DOMAIN = '@gamelog.local';
 const STATUSES = [
@@ -14,7 +16,7 @@ const STATUSES = [
 ];
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s=>[s.key,s]));
 
-let supabase;
+let sb;
 let currentUser = null;        // { id, username }
 let profiles = [];             // [{id, username}]
 let viewingUserId = null;      // 今表示しているユーザーのid
@@ -39,7 +41,7 @@ function initSupabase(){
       </div>`;
     throw new Error('Supabase config missing');
   }
-  supabase = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
+  sb = window.supabase.createClient(window.SUPABASE_URL, window.SUPABASE_ANON_KEY);
 }
 
 function initTheme(){
@@ -110,7 +112,7 @@ $('authSubmitBtn').addEventListener('click', async ()=>{
 
   try{
     if(authMode === 'login'){
-      const {data, error} = await supabase.auth.signInWithPassword({email, password: pw});
+      const {data, error} = await sb.auth.signInWithPassword({email, password: pw});
       if(error) throw error;
       await onLoggedIn(data.user);
     }else{
@@ -121,7 +123,7 @@ $('authSubmitBtn').addEventListener('click', async ()=>{
         $('authSubmitBtn').disabled = false;
         return;
       }
-      const {data, error} = await supabase.auth.signUp({email, password: pw});
+      const {data, error} = await sb.auth.signUp({email, password: pw});
       if(error) throw error;
       if(!data.session){
         errEl.textContent = 'アカウントは作成されましたが、ログインに確認が必要な設定になっています。Supabaseの Authentication 設定で「Confirm email」をOFFにしてください。';
@@ -129,7 +131,7 @@ $('authSubmitBtn').addEventListener('click', async ()=>{
         $('authSubmitBtn').disabled = false;
         return;
       }
-      const {error: profileError} = await supabase.from('profiles').insert({id: data.user.id, username: id});
+      const {error: profileError} = await sb.from('profiles').insert({id: data.user.id, username: id});
       if(profileError){
         if(profileError.code === '23505'){
           errEl.textContent = 'そのIDはすでに使われています';
@@ -160,7 +162,7 @@ function translateAuthError(msg){
 async function onLoggedIn(authUser, knownUsername){
   let username = knownUsername;
   if(!username){
-    const {data} = await supabase.from('profiles').select('username').eq('id', authUser.id).single();
+    const {data} = await sb.from('profiles').select('username').eq('id', authUser.id).single();
     username = data ? data.username : authUser.email.replace(FAKE_EMAIL_DOMAIN,'');
   }
   currentUser = {id: authUser.id, username};
@@ -173,7 +175,7 @@ async function onLoggedIn(authUser, knownUsername){
 }
 
 $('logoutBtn').addEventListener('click', async ()=>{
-  await supabase.auth.signOut();
+  await sb.auth.signOut();
   currentUser = null;
   $('appScreen').classList.add('hidden');
   $('loginScreen').classList.remove('hidden');
@@ -182,7 +184,7 @@ $('logoutBtn').addEventListener('click', async ()=>{
 
 /* ---------------- ユーザー一覧 / 表示切り替え ---------------- */
 async function loadProfiles(){
-  const {data, error} = await supabase.from('profiles').select('id, username').order('username');
+  const {data, error} = await sb.from('profiles').select('id, username').order('username');
   profiles = error ? [] : data;
   const select = $('userSelect');
   const others = profiles.filter(p=>p.id !== currentUser.id);
@@ -206,7 +208,7 @@ function setViewingUser(userId){
 async function loadGames(){
   dataLoaded = false;
   renderGrid();
-  const {data, error} = await supabase
+  const {data, error} = await sb
     .from('games')
     .select('*')
     .eq('user_id', viewingUserId)
@@ -470,7 +472,7 @@ function openModal(id){
   if(deleteBtn){
     deleteBtn.addEventListener('click', async ()=>{
       deleteBtn.disabled = true;
-      const {error} = await supabase.from('games').delete().eq('id', formState.id);
+      const {error} = await sb.from('games').delete().eq('id', formState.id);
       if(error){ showToast('削除に失敗しました'); deleteBtn.disabled=false; return; }
       overlay.remove();
       await loadGames();
@@ -498,9 +500,9 @@ function openModal(id){
 
     let error;
     if(formState.id){
-      ({error} = await supabase.from('games').update(payload).eq('id', formState.id));
+      ({error} = await sb.from('games').update(payload).eq('id', formState.id));
     }else{
-      ({error} = await supabase.from('games').insert({...payload, user_id: currentUser.id}));
+      ({error} = await sb.from('games').insert({...payload, user_id: currentUser.id}));
     }
     saveBtn.disabled = false;
     if(error){ showToast('保存に失敗しました: ' + error.message); return; }
@@ -550,7 +552,7 @@ $('importFile').addEventListener('change', async (e)=>{
         comment: g.comment || '',
         updated_at: new Date().toISOString()
       }));
-      const {error} = await supabase.from('games').insert(rows);
+      const {error} = await sb.from('games').insert(rows);
       if(error) throw error;
       await loadGames();
       showToast('読み込みました');
@@ -567,8 +569,10 @@ $('importFile').addEventListener('change', async (e)=>{
   initTheme();
   setAuthMode('login');
 
-  const {data:{session}} = await supabase.auth.getSession();
+  const {data:{session}} = await sb.auth.getSession();
   if(session){
     await onLoggedIn(session.user);
   }
+})();
+
 })();
