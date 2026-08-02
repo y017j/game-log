@@ -230,6 +230,7 @@ function dbToGame(row){
     hours: row.hours,
     date: row.play_date,
     comment: row.comment,
+    coverUrl: row.cover_url,
     updatedAt: row.updated_at
   };
 }
@@ -330,6 +331,7 @@ function cardHtml(g){
   const st = STATUS_MAP[g.status] || STATUSES[3];
   return `
     <div class="card" style="--status-color:${st.color}" data-id="${g.id}">
+      ${g.coverUrl ? `<img class="card-cover" src="${escapeHtml(g.coverUrl)}" alt="" loading="lazy">` : ''}
       <div class="card-top">
         <h3 class="card-title">${escapeHtml(g.title)}</h3>
         ${g.platform ? `<span class="platform-badge">${escapeHtml(g.platform)}</span>` : ''}
@@ -355,6 +357,7 @@ function openViewModal(g){
   overlay.innerHTML = `
     <div class="modal">
       <h2>${escapeHtml(g.title)}</h2>
+      ${g.coverUrl ? `<img class="card-cover" src="${escapeHtml(g.coverUrl)}" alt="" style="aspect-ratio:auto; max-height:280px; object-fit:contain; background:rgba(0,0,0,0.03);">` : ''}
       <div class="view-field">
         <div class="vlabel">プラットフォーム</div>
         <div class="vvalue">${escapeHtml(g.platform) || '未記入'}</div>
@@ -406,6 +409,16 @@ function openModal(id){
         <label>タイトル</label>
         <input type="text" id="f_title" value="${escapeHtml(formState.title)}" placeholder="例）ゼルダの伝説">
       </div>
+      <div class="field">
+        <label>パッケージ画像</label>
+        <div class="cover-upload">
+          <img id="f_cover_preview" class="cover-preview ${formState.coverUrl ? '' : 'hidden'}" src="${formState.coverUrl ? escapeHtml(formState.coverUrl) : ''}">
+          <div class="cover-upload-col">
+            <input type="file" id="f_cover" accept="image/*">
+            <button type="button" class="cover-clear-btn ${formState.coverUrl ? '' : 'hidden'}" id="f_cover_clear">画像を削除</button>
+          </div>
+        </div>
+      </div>
       <div class="row2">
         <div class="field">
           <label>プラットフォーム</label>
@@ -448,6 +461,28 @@ function openModal(id){
 
   let currentRating = formState.rating || 0;
   let currentStatus = formState.status || 'playing';
+  let coverCleared = false;
+
+  overlay.querySelector('#f_cover').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    const preview = overlay.querySelector('#f_cover_preview');
+    if(!file) return;
+    if(file.size > 5*1024*1024){
+      showToast('画像は5MB以下にしてください');
+      e.target.value = '';
+      return;
+    }
+    coverCleared = false;
+    preview.src = URL.createObjectURL(file);
+    preview.classList.remove('hidden');
+    overlay.querySelector('#f_cover_clear').classList.remove('hidden');
+  });
+  overlay.querySelector('#f_cover_clear').addEventListener('click', ()=>{
+    coverCleared = true;
+    overlay.querySelector('#f_cover').value = '';
+    overlay.querySelector('#f_cover_preview').classList.add('hidden');
+    overlay.querySelector('#f_cover_clear').classList.add('hidden');
+  });
 
   overlay.querySelector('#f_rating').addEventListener('click', (e)=>{
     const blk = e.target.closest('.blk');
@@ -487,6 +522,23 @@ function openModal(id){
     const saveBtn = overlay.querySelector('#saveBtn');
     saveBtn.disabled = true;
 
+    let coverUrl = formState.coverUrl || null;
+    const coverFile = overlay.querySelector('#f_cover').files[0];
+    if(coverFile){
+      const ext = (coverFile.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `${currentUser.id}/${crypto.randomUUID()}.${ext}`;
+      const {error: uploadError} = await sb.storage.from('covers').upload(path, coverFile, {cacheControl:'3600', upsert:false});
+      if(uploadError){
+        showToast('画像のアップロードに失敗しました: ' + uploadError.message);
+        saveBtn.disabled = false;
+        return;
+      }
+      const {data: urlData} = sb.storage.from('covers').getPublicUrl(path);
+      coverUrl = urlData.publicUrl;
+    }else if(coverCleared){
+      coverUrl = null;
+    }
+
     const payload = {
       title,
       platform: overlay.querySelector('#f_platform').value.trim(),
@@ -495,6 +547,7 @@ function openModal(id){
       hours: overlay.querySelector('#f_hours').value ? Number(overlay.querySelector('#f_hours').value) : null,
       play_date: overlay.querySelector('#f_date').value || null,
       comment: overlay.querySelector('#f_comment').value.trim(),
+      cover_url: coverUrl,
       updated_at: new Date().toISOString()
     };
 
@@ -550,6 +603,7 @@ $('importFile').addEventListener('change', async (e)=>{
         hours: g.hours ? Number(g.hours) : null,
         play_date: g.date || null,
         comment: g.comment || '',
+        cover_url: g.coverUrl || null,
         updated_at: new Date().toISOString()
       }));
       const {error} = await sb.from('games').insert(rows);

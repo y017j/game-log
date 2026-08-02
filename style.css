@@ -411,6 +411,15 @@ select.sort-select{
   transform:translateY(-3px);
   box-shadow:0 11px 0 var(--paper-shadow), 0 14px 20px rgba(0,0,0,0.22);
 }
+.card-cover{
+  width:100%;
+  aspect-ratio:3/4;
+  object-fit:cover;
+  border-radius:9px;
+  margin-bottom:10px;
+  display:block;
+  box-shadow:0 2px 6px rgba(0,0,0,0.18);
+}
 .card-top{display:flex; justify-content:space-between; align-items:flex-start; gap:8px;}
 .card-title{
   font-family:'Zen Maru Gothic', sans-serif;
@@ -520,6 +529,31 @@ select.sort-select{
   font-size:12.5px; cursor:pointer; color:var(--ink-soft);
 }
 .status-picker button.on{background:var(--ink); color:var(--card); border-color:var(--ink); font-weight:700;}
+
+.cover-upload{display:flex; align-items:center; gap:14px;}
+.cover-upload .cover-preview{
+  width:76px; height:100px;
+  object-fit:cover;
+  border-radius:8px;
+  border:1px solid #d8c9a6;
+  background:#fffdf8;
+  flex-shrink:0;
+}
+.cover-upload input[type=file]{
+  font-size:12.5px;
+  color:var(--ink-soft);
+}
+.cover-upload-col{display:flex; flex-direction:column; gap:6px;}
+.cover-clear-btn{
+  align-self:flex-start;
+  background:none;
+  border:none;
+  color:var(--accent2);
+  font-size:12px;
+  text-decoration:underline;
+  cursor:pointer;
+  padding:0;
+}
 
 .view-field{margin-bottom:12px;}
 .view-field .vlabel{font-size:11px; font-weight:700; color:var(--ink-soft); letter-spacing:0.03em;}
