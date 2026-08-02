@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ja" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ゲームログ</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ===================== ログイン画面 ===================== -->
+<div id="loginScreen" class="login-wrap">
+  <div class="login-card">
+    <p class="eyebrow">MY PLAY RECORD</p>
+    <h1>ゲームログ</h1>
+    <p class="sub">IDとパスワードでログインしてください</p>
+
+    <div class="login-tabs">
+      <button type="button" id="tabLogin" class="on">ログイン</button>
+      <button type="button" id="tabSignup">はじめて使う</button>
+    </div>
+
+    <div id="loginError" class="login-error hidden"></div>
+
+    <div class="field">
+      <label>ID</label>
+      <input type="text" id="authId" autocomplete="username" placeholder="半角英数字">
+    </div>
+    <div class="field">
+      <label>パスワード</label>
+      <input type="password" id="authPw" autocomplete="current-password" placeholder="6文字以上">
+    </div>
+    <div class="field" id="authPwConfirmField" style="display:none;">
+      <label>パスワード（確認）</label>
+      <input type="password" id="authPwConfirm" autocomplete="new-password">
+    </div>
+
+    <button class="login-btn" id="authSubmitBtn">ログイン</button>
+    <p class="login-hint" id="loginHint">アカウントをまだ作っていない場合は「はじめて使う」から登録してください。</p>
+  </div>
+</div>
+
+<!-- ===================== アプリ画面 ===================== -->
+<div id="appScreen" class="app hidden">
+  <div class="header">
+    <div class="title-block">
+      <p class="eyebrow">MY PLAY RECORD</p>
+      <h1>ゲームログ</h1>
+      <p>プレイしたゲームの記録と感想をためていく場所</p>
+    </div>
+    <div class="header-right">
+      <div class="user-pill">
+        <span>ログイン中: <b id="currentUserLabel">-</b></span>
+        <button class="logout-link" id="logoutBtn">ログアウト</button>
+      </div>
+      <div class="theme-picker" id="themePicker">
+        <button class="theme-swatch" data-theme="dark" title="ダーク"></button>
+        <button class="theme-swatch" data-theme="pink" title="ピンク"></button>
+        <button class="theme-swatch" data-theme="white" title="ホワイト"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="view-row">
+    <div class="view-selector">
+      <span>表示するユーザー:</span>
+      <select id="userSelect"></select>
+      <span class="readonly-badge hidden" id="readonlyBadge">閲覧のみ</span>
+    </div>
+    <div class="stat-strip" id="statStrip"></div>
+  </div>
+
+  <div class="controls">
+    <div class="search-box">
+      <input type="text" id="searchInput" placeholder="タイトルで検索...">
+    </div>
+    <div class="tabs" id="statusTabs"></div>
+    <select class="sort-select" id="sortSelect">
+      <option value="new">更新が新しい順</option>
+      <option value="rating">評価が高い順</option>
+      <option value="title">タイトル順</option>
+    </select>
+    <button class="ghost-btn" id="exportBtn" title="表示中の記録をファイルに書き出す">書き出し</button>
+    <button class="ghost-btn hidden" id="importBtn" title="書き出したファイルを読み込む">読み込み</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none;">
+    <button class="add-btn hidden" id="addBtn">＋ ゲームを追加</button>
+  </div>
+
+  <div id="content">
+    <div class="loading">読み込み中...</div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
