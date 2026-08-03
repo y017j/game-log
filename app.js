@@ -17,8 +17,7 @@ const STATUSES = [
 const STATUS_MAP = Object.fromEntries(STATUSES.map(s=>[s.key,s]));
 
 let sb;
-let currentUser = null;        // { id, username }
-let profiles = [];             // [{id, username}]
+let currentUser = null;        // { id, username, avatarUrl }
 let viewingUserId = null;      // 今表示しているユーザーのid
 let isOwnView = true;
 let games = [];
@@ -48,7 +47,12 @@ function initTheme(){
   const saved = localStorage.getItem('game-log:theme') || 'dark';
   applyTheme(saved);
   document.querySelectorAll('.theme-swatch').forEach(btn=>{
-    btn.addEventListener('click', ()=>applyTheme(btn.dataset.theme));
+    btn.addEventListener('click', async ()=>{
+      applyTheme(btn.dataset.theme);
+      if(currentUser){
+        await sb.from('profiles').update({theme: btn.dataset.theme}).eq('id', currentUser.id);
+      }
+    });
   });
 }
 function applyTheme(theme){
@@ -160,18 +164,33 @@ function translateAuthError(msg){
 }
 
 async function onLoggedIn(authUser, knownUsername){
-  let username = knownUsername;
-  if(!username){
-    const {data} = await sb.from('profiles').select('username').eq('id', authUser.id).single();
-    username = data ? data.username : authUser.email.replace(FAKE_EMAIL_DOMAIN,'');
-  }
-  currentUser = {id: authUser.id, username};
+  const {data: profile} = await sb.from('profiles').select('username, avatar_url, theme').eq('id', authUser.id).single();
+  const username = knownUsername || (profile && profile.username) || authUser.email.replace(FAKE_EMAIL_DOMAIN,'');
+  currentUser = {id: authUser.id, username, avatarUrl: profile ? profile.avatar_url : null};
+
+  applyTheme((profile && profile.theme) || localStorage.getItem('game-log:theme') || 'dark');
+  updateAvatarUI();
+
   $('loginScreen').classList.add('hidden');
   $('appScreen').classList.remove('hidden');
   $('currentUserLabel').textContent = currentUser.username;
 
-  await loadProfiles();
+  await loadViewableUsers();
   setViewingUser(currentUser.id);
+}
+
+function updateAvatarUI(){
+  const img = $('avatarImg');
+  const initial = $('avatarInitial');
+  if(currentUser && currentUser.avatarUrl){
+    img.src = currentUser.avatarUrl;
+    img.classList.remove('hidden');
+    initial.classList.add('hidden');
+  }else{
+    img.classList.add('hidden');
+    initial.classList.remove('hidden');
+    initial.textContent = currentUser ? currentUser.username.charAt(0).toUpperCase() : '';
+  }
 }
 
 $('logoutBtn').addEventListener('click', async ()=>{
@@ -183,11 +202,19 @@ $('logoutBtn').addEventListener('click', async ()=>{
 });
 
 /* ---------------- ユーザー一覧 / 表示切り替え ---------------- */
-async function loadProfiles(){
-  const {data, error} = await sb.from('profiles').select('id, username').order('username');
-  profiles = error ? [] : data;
+async function loadViewableUsers(){
+  // group_membersはRLSにより「自分の所属グループに関する行」しか見えないため、
+  // フィルタなしでSELECTするだけで「自分と同じグループの人たち」が取得できる
+  const {data: rows} = await sb.from('group_members').select('user_id');
+  const ids = new Set([currentUser.id]);
+  (rows||[]).forEach(r=>ids.add(r.user_id));
+  const idList = Array.from(ids);
+
+  const {data: profs, error} = await sb.from('profiles').select('id, username').in('id', idList);
+  const list = error ? [{id:currentUser.id, username:currentUser.username}] : profs;
+
   const select = $('userSelect');
-  const others = profiles.filter(p=>p.id !== currentUser.id);
+  const others = list.filter(p=>p.id !== currentUser.id).sort((a,b)=>a.username.localeCompare(b.username,'ja'));
   select.innerHTML =
     `<option value="${currentUser.id}">自分（${escapeHtml(currentUser.username)}）</option>` +
     others.map(p=>`<option value="${p.id}">${escapeHtml(p.username)}</option>`).join('');
@@ -218,6 +245,13 @@ async function loadGames(){
   renderTabs();
   renderStats();
   renderGrid();
+  if(isOwnView) refreshPlatformOptions();
+}
+
+function refreshPlatformOptions(){
+  const unique = Array.from(new Set(games.map(g=>g.platform).filter(Boolean)));
+  const list = $('platformOptions');
+  if(list) list.innerHTML = unique.map(p=>`<option value="${escapeHtml(p)}"></option>`).join('');
 }
 
 function dbToGame(row){
@@ -228,7 +262,7 @@ function dbToGame(row){
     status: row.status,
     rating: row.rating,
     hours: row.hours,
-    date: row.play_date,
+    year: row.play_year,
     comment: row.comment,
     coverUrl: row.cover_url,
     updatedAt: row.updated_at
@@ -274,6 +308,7 @@ function getFilteredSorted(){
   }
   if(sortMode==='new') list.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
   else if(sortMode==='rating') list.sort((a,b)=> (Number(b.rating)||0) - (Number(a.rating)||0));
+  else if(sortMode==='year') list.sort((a,b)=> (Number(b.year)||0) - (Number(a.year)||0));
   else if(sortMode==='title') list.sort((a,b)=> (a.title||'').localeCompare(b.title||'', 'ja'));
   return list;
 }
@@ -283,7 +318,12 @@ function renderMeter(rating){
   for(let i=1;i<=5;i++) segs += `<div class="seg ${i<=rating?'filled':''}"></div>`;
   return `<div class="meter">${segs}</div>`;
 }
-function formatDate(d){ return d || '未記入'; }
+function formatUpdated(iso){
+  if(!iso) return '';
+  const d = new Date(iso);
+  const pad = (n)=>String(n).padStart(2,'0');
+  return `更新: ${d.getFullYear()}/${pad(d.getMonth()+1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 function renderGrid(){
   const content = $('content');
@@ -331,6 +371,7 @@ function cardHtml(g){
   const st = STATUS_MAP[g.status] || STATUSES[3];
   return `
     <div class="card" style="--status-color:${st.color}" data-id="${g.id}">
+      <div class="card-updated">${formatUpdated(g.updatedAt)}</div>
       ${g.coverUrl ? `<img class="card-cover" src="${escapeHtml(g.coverUrl)}" alt="" loading="lazy">` : ''}
       <div class="card-top">
         <h3 class="card-title">${escapeHtml(g.title)}</h3>
@@ -344,7 +385,7 @@ function cardHtml(g){
       ${g.comment ? `<p class="card-comment">${escapeHtml(g.comment)}</p>` : ''}
       <div class="card-footer">
         <span>${g.hours ? g.hours+'h' : '--'}</span>
-        <span>${formatDate(g.date)}</span>
+        <span>${g.year ? g.year+'年' : '年未記入'}</span>
       </div>
     </div>`;
 }
@@ -356,6 +397,7 @@ function openViewModal(g){
   overlay.className = 'overlay';
   overlay.innerHTML = `
     <div class="modal">
+      <div class="card-updated">${formatUpdated(g.updatedAt)}</div>
       <h2>${escapeHtml(g.title)}</h2>
       ${g.coverUrl ? `<img class="card-cover" src="${escapeHtml(g.coverUrl)}" alt="" style="aspect-ratio:auto; max-height:280px; object-fit:contain; background:rgba(0,0,0,0.03);">` : ''}
       <div class="view-field">
@@ -376,8 +418,8 @@ function openViewModal(g){
           <div class="vvalue">${g.hours ? g.hours+' h' : '未記入'}</div>
         </div>
         <div class="view-field">
-          <div class="vlabel">記録日</div>
-          <div class="vvalue">${formatDate(g.date)}</div>
+          <div class="vlabel">プレイしていた年</div>
+          <div class="vvalue">${g.year ? g.year+'年' : '未記入'}</div>
         </div>
       </div>
       ${g.comment ? `
@@ -398,7 +440,7 @@ function openViewModal(g){
 /* ---------------- 編集モーダル（自分の記録） ---------------- */
 function openModal(id){
   const g = id ? games.find(x=>x.id===id) : null;
-  const formState = g ? {...g} : {id:null, title:'', platform:'', status:'playing', rating:0, hours:'', date:'', comment:''};
+  const formState = g ? {...g} : {id:null, title:'', platform:'', status:'playing', rating:0, hours:'', year:'', comment:''};
 
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
@@ -422,7 +464,7 @@ function openModal(id){
       <div class="row2">
         <div class="field">
           <label>プラットフォーム</label>
-          <input type="text" id="f_platform" value="${escapeHtml(formState.platform)}" placeholder="Switch など">
+          <input type="text" id="f_platform" list="platformOptions" value="${escapeHtml(formState.platform)}" placeholder="Switch など">
         </div>
         <div class="field">
           <label>プレイ時間（h）</label>
@@ -442,8 +484,8 @@ function openModal(id){
         </div>
       </div>
       <div class="field">
-        <label>記録日</label>
-        <input type="date" id="f_date" value="${formState.date || ''}">
+        <label>プレイしていた年</label>
+        <input type="number" id="f_year" min="1970" max="2100" step="1" placeholder="例）2008" value="${formState.year || ''}">
       </div>
       <div class="field">
         <label>感想・メモ</label>
@@ -545,7 +587,7 @@ function openModal(id){
       status: currentStatus,
       rating: currentRating,
       hours: overlay.querySelector('#f_hours').value ? Number(overlay.querySelector('#f_hours').value) : null,
-      play_date: overlay.querySelector('#f_date').value || null,
+      play_year: overlay.querySelector('#f_year').value ? Number(overlay.querySelector('#f_year').value) : null,
       comment: overlay.querySelector('#f_comment').value.trim(),
       cover_url: coverUrl,
       updated_at: new Date().toISOString()
@@ -565,6 +607,215 @@ function openModal(id){
   });
 }
 window.openModal = openModal;
+
+/* ---------------- アイコン設定 ---------------- */
+$('avatarBtn').addEventListener('click', ()=>{
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:360px; text-align:center;">
+      <h2>アイコンを設定</h2>
+      <img id="avatarPreview" class="avatar-upload-preview ${currentUser.avatarUrl ? '' : 'hidden'}" src="${currentUser.avatarUrl ? escapeHtml(currentUser.avatarUrl) : ''}">
+      ${!currentUser.avatarUrl ? `<div class="avatar-upload-preview" style="display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--ink-soft);" id="avatarPlaceholder">${escapeHtml(currentUser.username.charAt(0).toUpperCase())}</div>` : ''}
+      <div class="field" style="text-align:left;">
+        <input type="file" id="f_avatar" accept="image/*">
+      </div>
+      <div class="modal-actions">
+        <span></span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-secondary" id="avatarCancelBtn">閉じる</button>
+          <button class="btn btn-primary" id="avatarSaveBtn">保存</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+
+  overlay.querySelector('#f_avatar').addEventListener('change', (e)=>{
+    const file = e.target.files[0];
+    if(!file) return;
+    if(file.size > 5*1024*1024){ showToast('画像は5MB以下にしてください'); e.target.value=''; return; }
+    const preview = overlay.querySelector('#avatarPreview');
+    preview.src = URL.createObjectURL(file);
+    preview.classList.remove('hidden');
+    const placeholder = overlay.querySelector('#avatarPlaceholder');
+    if(placeholder) placeholder.classList.add('hidden');
+  });
+  overlay.querySelector('#avatarCancelBtn').addEventListener('click', ()=>overlay.remove());
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+
+  overlay.querySelector('#avatarSaveBtn').addEventListener('click', async ()=>{
+    const file = overlay.querySelector('#f_avatar').files[0];
+    if(!file){ showToast('画像を選択してください'); return; }
+    const saveBtn = overlay.querySelector('#avatarSaveBtn');
+    saveBtn.disabled = true;
+    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+    const path = `${currentUser.id}/avatar-${crypto.randomUUID()}.${ext}`;
+    const {error: uploadError} = await sb.storage.from('covers').upload(path, file, {cacheControl:'3600', upsert:false});
+    if(uploadError){ showToast('アップロードに失敗しました: ' + uploadError.message); saveBtn.disabled=false; return; }
+    const {data: urlData} = sb.storage.from('covers').getPublicUrl(path);
+    const {error: updateError} = await sb.from('profiles').update({avatar_url: urlData.publicUrl}).eq('id', currentUser.id);
+    saveBtn.disabled = false;
+    if(updateError){ showToast('保存に失敗しました: ' + updateError.message); return; }
+    currentUser.avatarUrl = urlData.publicUrl;
+    updateAvatarUI();
+    overlay.remove();
+    showToast('アイコンを更新しました');
+  });
+});
+
+/* ---------------- グループ管理 ---------------- */
+async function fetchMyGroups(){
+  const {data: myMemberships, error} = await sb
+    .from('group_members')
+    .select('group_id, groups(id, name, owner_id)')
+    .eq('user_id', currentUser.id);
+  if(error || !myMemberships) return [];
+
+  const groupsMap = new Map();
+  myMemberships.forEach(m=>{ if(m.groups) groupsMap.set(m.groups.id, m.groups); });
+  const groupIds = Array.from(groupsMap.keys());
+  if(groupIds.length === 0) return [];
+
+  const {data: allMemberRows} = await sb.from('group_members').select('group_id, user_id').in('group_id', groupIds);
+  const userIds = Array.from(new Set((allMemberRows||[]).map(r=>r.user_id)));
+  const {data: profs} = await sb.from('profiles').select('id, username').in('id', userIds);
+  const profMap = new Map((profs||[]).map(p=>[p.id,p]));
+
+  return groupIds.map(gid=>{
+    const g = groupsMap.get(gid);
+    const members = (allMemberRows||[])
+      .filter(r=>r.group_id===gid)
+      .map(r=>profMap.get(r.user_id))
+      .filter(Boolean)
+      .sort((a,b)=>a.username.localeCompare(b.username,'ja'));
+    return {...g, members};
+  });
+}
+
+async function renderGroupModalBody(overlay){
+  const body = overlay.querySelector('#groupModalBody');
+  body.innerHTML = '<div class="loading" style="padding:20px;">読み込み中...</div>';
+  const groups = await fetchMyGroups();
+
+  if(groups.length === 0){
+    body.innerHTML = `<p class="group-empty">まだどのグループにも所属していません。下記から作成してください。</p>`;
+  }else{
+    body.innerHTML = groups.map(g=>{
+      const isOwner = g.owner_id === currentUser.id;
+      return `
+        <div class="group-block">
+          <div class="group-head">
+            <span>${escapeHtml(g.name)}</span>
+            ${isOwner ? `<span class="owner-badge">オーナー</span>` : ''}
+          </div>
+          <div class="group-members">
+            ${g.members.map(m=>`
+              <span class="member-chip">
+                ${escapeHtml(m.username)}
+                ${isOwner && m.id !== currentUser.id ? `<button class="remove-member-btn" data-group="${g.id}" data-user="${m.id}" title="削除">×</button>` : ''}
+              </span>`).join('')}
+          </div>
+          <div class="invite-row">
+            <input type="text" class="invite-input" data-group="${g.id}" placeholder="招待するユーザーID">
+            <button class="invite-btn" data-group="${g.id}">招待</button>
+          </div>
+          ${!isOwner ? `<button class="leave-group-btn" data-group="${g.id}">このグループを抜ける</button>` : ''}
+        </div>`;
+    }).join('');
+  }
+
+  body.querySelectorAll('.invite-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      const gid = btn.dataset.group;
+      const input = body.querySelector(`.invite-input[data-group="${gid}"]`);
+      const uname = input.value.trim();
+      if(!uname) return;
+      btn.disabled = true;
+      const {data: prof, error: findError} = await sb.from('profiles').select('id, username').ilike('username', uname).maybeSingle();
+      if(findError || !prof){
+        showToast('そのIDのユーザーが見つかりません');
+        btn.disabled = false;
+        return;
+      }
+      const {error: insertError} = await sb.from('group_members').insert({group_id: gid, user_id: prof.id});
+      btn.disabled = false;
+      if(insertError){
+        showToast(insertError.code === '23505' ? 'すでにメンバーです' : '招待に失敗しました: ' + insertError.message);
+        return;
+      }
+      showToast(`${prof.username}さんを招待しました`);
+      input.value = '';
+      await renderGroupModalBody(overlay);
+      await loadViewableUsers();
+    });
+  });
+
+  body.querySelectorAll('.remove-member-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('このメンバーをグループから削除しますか？')) return;
+      const {error} = await sb.from('group_members').delete().eq('group_id', btn.dataset.group).eq('user_id', btn.dataset.user);
+      if(error){ showToast('削除に失敗しました'); return; }
+      showToast('削除しました');
+      await renderGroupModalBody(overlay);
+      await loadViewableUsers();
+    });
+  });
+
+  body.querySelectorAll('.leave-group-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      if(!confirm('このグループを抜けますか？')) return;
+      const {error} = await sb.from('group_members').delete().eq('group_id', btn.dataset.group).eq('user_id', currentUser.id);
+      if(error){ showToast('操作に失敗しました'); return; }
+      showToast('グループを抜けました');
+      await renderGroupModalBody(overlay);
+      await loadViewableUsers();
+      if(viewingUserId !== currentUser.id) setViewingUser(currentUser.id);
+    });
+  });
+}
+
+$('groupBtn').addEventListener('click', async ()=>{
+  const overlay = document.createElement('div');
+  overlay.className = 'overlay';
+  overlay.innerHTML = `
+    <div class="modal">
+      <h2>グループ管理</h2>
+      <p style="font-size:12.5px; color:var(--ink-soft); margin-top:-10px;">同じグループのメンバー同士だけがお互いのゲームログを見られます。</p>
+      <div id="groupModalBody"></div>
+      <div class="field" style="margin-top:6px;">
+        <label>新しいグループを作成</label>
+        <div style="display:flex; gap:8px;">
+          <input type="text" id="newGroupName" placeholder="グループ名（例: 高校の友達）">
+          <button class="btn btn-primary" id="createGroupBtn" style="flex-shrink:0;">作成</button>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <span></span>
+        <button class="btn btn-secondary" id="groupCloseBtn">閉じる</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+  overlay.querySelector('#groupCloseBtn').addEventListener('click', ()=>overlay.remove());
+  overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
+
+  overlay.querySelector('#createGroupBtn').addEventListener('click', async ()=>{
+    const name = overlay.querySelector('#newGroupName').value.trim();
+    if(!name){ showToast('グループ名を入力してください'); return; }
+    const btn = overlay.querySelector('#createGroupBtn');
+    btn.disabled = true;
+    const {data: newGroup, error} = await sb.from('groups').insert({name, owner_id: currentUser.id}).select().single();
+    if(error){ showToast('作成に失敗しました: ' + error.message); btn.disabled=false; return; }
+    const {error: memberError} = await sb.from('group_members').insert({group_id: newGroup.id, user_id: currentUser.id});
+    btn.disabled = false;
+    if(memberError){ showToast('作成に失敗しました: ' + memberError.message); return; }
+    overlay.querySelector('#newGroupName').value = '';
+    showToast('グループを作成しました');
+    await renderGroupModalBody(overlay);
+    await loadViewableUsers();
+  });
+
+  await renderGroupModalBody(overlay);
+});
 
 /* ---------------- 検索・並び替え ---------------- */
 $('searchInput').addEventListener('input', (e)=>{ searchQuery = e.target.value; renderGrid(); });
@@ -601,7 +852,7 @@ $('importFile').addEventListener('change', async (e)=>{
         status: g.status || 'playing',
         rating: g.rating || 0,
         hours: g.hours ? Number(g.hours) : null,
-        play_date: g.date || null,
+        play_year: g.year ? Number(g.year) : null,
         comment: g.comment || '',
         cover_url: g.coverUrl || null,
         updated_at: new Date().toISOString()

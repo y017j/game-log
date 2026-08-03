@@ -50,13 +50,20 @@
     </div>
     <div class="header-right">
       <div class="user-pill">
+        <button class="avatar-btn" id="avatarBtn" title="アイコンを設定">
+          <img id="avatarImg" class="hidden" alt="">
+          <span id="avatarInitial"></span>
+        </button>
         <span>ログイン中: <b id="currentUserLabel">-</b></span>
         <button class="logout-link" id="logoutBtn">ログアウト</button>
       </div>
-      <div class="theme-picker" id="themePicker">
-        <button class="theme-swatch" data-theme="dark" title="ダーク"></button>
-        <button class="theme-swatch" data-theme="pink" title="ピンク"></button>
-        <button class="theme-swatch" data-theme="white" title="ホワイト"></button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button class="ghost-btn" id="groupBtn">グループ管理</button>
+        <div class="theme-picker" id="themePicker">
+          <button class="theme-swatch" data-theme="dark" title="ダーク"></button>
+          <button class="theme-swatch" data-theme="pink" title="ピンク"></button>
+          <button class="theme-swatch" data-theme="white" title="ホワイト"></button>
+        </div>
       </div>
     </div>
   </div>
@@ -78,6 +85,7 @@
     <select class="sort-select" id="sortSelect">
       <option value="new">更新が新しい順</option>
       <option value="rating">評価が高い順</option>
+      <option value="year">プレイ年が新しい順</option>
       <option value="title">タイトル順</option>
     </select>
     <button class="ghost-btn" id="exportBtn" title="表示中の記録をファイルに書き出す">書き出し</button>
@@ -89,6 +97,8 @@
   <div id="content">
     <div class="loading">読み込み中...</div>
   </div>
+
+  <datalist id="platformOptions"></datalist>
 </div>
 
 <div class="toast" id="toast"></div>
