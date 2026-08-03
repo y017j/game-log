@@ -51,7 +51,8 @@ function initTheme(){
     btn.addEventListener('click', async ()=>{
       applyTheme(btn.dataset.theme);
       if(currentUser){
-        await sb.from('profiles').update({theme: btn.dataset.theme}).eq('id', currentUser.id);
+        const {error} = await sb.from('profiles').update({theme: btn.dataset.theme}).eq('id', currentUser.id);
+        if(error) showToast('テーマの保存に失敗しました: ' + error.message);
       }
     });
   });
