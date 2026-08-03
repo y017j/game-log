@@ -23,9 +23,10 @@ let isOwnView = true;
 let games = [];
 let filterStatus = 'all';
 let searchQuery = '';
-let sortMode = 'new';
+let sortMode = 'new_desc';
 let dataLoaded = false;
 let authMode = 'login';        // 'login' | 'signup'
+let viewableProfiles = new Map(); // id -> {id, username, avatar_url, bio}
 
 const $ = (id) => document.getElementById(id);
 
@@ -164,9 +165,9 @@ function translateAuthError(msg){
 }
 
 async function onLoggedIn(authUser, knownUsername){
-  const {data: profile} = await sb.from('profiles').select('username, avatar_url, theme').eq('id', authUser.id).single();
+  const {data: profile} = await sb.from('profiles').select('username, avatar_url, bio, theme').eq('id', authUser.id).single();
   const username = knownUsername || (profile && profile.username) || authUser.email.replace(FAKE_EMAIL_DOMAIN,'');
-  currentUser = {id: authUser.id, username, avatarUrl: profile ? profile.avatar_url : null};
+  currentUser = {id: authUser.id, username, avatarUrl: profile ? profile.avatar_url : null, bio: profile ? profile.bio : ''};
 
   applyTheme((profile && profile.theme) || localStorage.getItem('game-log:theme') || 'dark');
   updateAvatarUI();
@@ -210,8 +211,10 @@ async function loadViewableUsers(){
   (rows||[]).forEach(r=>ids.add(r.user_id));
   const idList = Array.from(ids);
 
-  const {data: profs, error} = await sb.from('profiles').select('id, username').in('id', idList);
-  const list = error ? [{id:currentUser.id, username:currentUser.username}] : profs;
+  const {data: profs, error} = await sb.from('profiles').select('id, username, avatar_url, bio').in('id', idList);
+  const list = error ? [{id:currentUser.id, username:currentUser.username, avatar_url:currentUser.avatarUrl, bio:currentUser.bio}] : profs;
+
+  viewableProfiles = new Map(list.map(p=>[p.id, p]));
 
   const select = $('userSelect');
   const others = list.filter(p=>p.id !== currentUser.id).sort((a,b)=>a.username.localeCompare(b.username,'ja'));
@@ -222,12 +225,32 @@ async function loadViewableUsers(){
 }
 $('userSelect').addEventListener('change', (e)=> setViewingUser(e.target.value));
 
+function renderViewingProfile(userId){
+  const prof = viewableProfiles.get(userId) || {username:'', avatar_url:null, bio:''};
+  const img = $('viewingAvatarImg');
+  const initial = $('viewingAvatarInitial');
+  if(prof.avatar_url){
+    img.src = prof.avatar_url;
+    img.classList.remove('hidden');
+    initial.classList.add('hidden');
+  }else{
+    img.classList.add('hidden');
+    initial.classList.remove('hidden');
+    initial.textContent = prof.username ? prof.username.charAt(0).toUpperCase() : '';
+  }
+  const bubble = $('viewingBio');
+  const bio = (prof.bio || '').trim();
+  bubble.textContent = bio || '自己紹介はまだ設定されていません';
+  bubble.classList.toggle('empty', !bio);
+}
+
 function setViewingUser(userId){
   viewingUserId = userId;
   isOwnView = (userId === currentUser.id);
   $('readonlyBadge').classList.toggle('hidden', isOwnView);
   $('addBtn').classList.toggle('hidden', !isOwnView);
   $('importBtn').classList.toggle('hidden', !isOwnView);
+  renderViewingProfile(userId);
   loadGames();
 }
 
@@ -306,10 +329,16 @@ function getFilteredSorted(){
     const q = searchQuery.trim().toLowerCase();
     list = list.filter(g=>(g.title||'').toLowerCase().includes(q));
   }
-  if(sortMode==='new') list.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
-  else if(sortMode==='rating') list.sort((a,b)=> (Number(b.rating)||0) - (Number(a.rating)||0));
-  else if(sortMode==='year') list.sort((a,b)=> (Number(b.year)||0) - (Number(a.year)||0));
-  else if(sortMode==='title') list.sort((a,b)=> (a.title||'').localeCompare(b.title||'', 'ja'));
+  if(sortMode==='new_desc') list.sort((a,b)=> new Date(b.updatedAt||0) - new Date(a.updatedAt||0));
+  else if(sortMode==='new_asc') list.sort((a,b)=> new Date(a.updatedAt||0) - new Date(b.updatedAt||0));
+  else if(sortMode==='rating_desc') list.sort((a,b)=> (Number(b.rating)||0) - (Number(a.rating)||0));
+  else if(sortMode==='rating_asc') list.sort((a,b)=> (Number(a.rating)||0) - (Number(b.rating)||0));
+  else if(sortMode==='hours_desc') list.sort((a,b)=> (Number(b.hours)||0) - (Number(a.hours)||0));
+  else if(sortMode==='hours_asc') list.sort((a,b)=> (Number(a.hours)||0) - (Number(b.hours)||0));
+  else if(sortMode==='year_desc') list.sort((a,b)=> (Number(b.year)||0) - (Number(a.year)||0));
+  else if(sortMode==='year_asc') list.sort((a,b)=> (Number(a.year)||0) - (Number(b.year)||0));
+  else if(sortMode==='title_asc') list.sort((a,b)=> (a.title||'').localeCompare(b.title||'', 'ja'));
+  else if(sortMode==='title_desc') list.sort((a,b)=> (b.title||'').localeCompare(a.title||'', 'ja'));
   return list;
 }
 
@@ -476,6 +505,7 @@ function openModal(id){
         <div class="status-picker" id="f_status">
           ${STATUSES.map(s=>`<button type="button" data-key="${s.key}" class="${formState.status===s.key?'on':''}">${s.label}</button>`).join('')}
         </div>
+        <div class="field-hint hidden" id="backlogHint">積みゲーの間は評価・プレイ時間を入力できません</div>
       </div>
       <div class="field">
         <label>評価（5段階）</label>
@@ -504,6 +534,19 @@ function openModal(id){
   let currentRating = formState.rating || 0;
   let currentStatus = formState.status || 'playing';
   let coverCleared = false;
+
+  function applyBacklogLock(){
+    const isBacklog = currentStatus === 'backlog';
+    overlay.querySelector('#f_rating').classList.toggle('disabled', isBacklog);
+    overlay.querySelector('#f_hours').disabled = isBacklog;
+    overlay.querySelector('#backlogHint').classList.toggle('hidden', !isBacklog);
+    if(isBacklog){
+      currentRating = 0;
+      overlay.querySelectorAll('#f_rating .blk').forEach(b=>b.classList.remove('on'));
+      overlay.querySelector('#f_hours').value = '';
+    }
+  }
+  applyBacklogLock();
 
   overlay.querySelector('#f_cover').addEventListener('change', (e)=>{
     const file = e.target.files[0];
@@ -541,6 +584,7 @@ function openModal(id){
     overlay.querySelectorAll('#f_status button').forEach(b=>{
       b.classList.toggle('on', b.dataset.key===currentStatus);
     });
+    applyBacklogLock();
   });
   overlay.querySelector('#cancelBtn').addEventListener('click', ()=>overlay.remove());
   overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
@@ -613,12 +657,17 @@ $('avatarBtn').addEventListener('click', ()=>{
   const overlay = document.createElement('div');
   overlay.className = 'overlay';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:360px; text-align:center;">
-      <h2>アイコンを設定</h2>
+    <div class="modal" style="max-width:380px; text-align:center;">
+      <h2>プロフィール設定</h2>
       <img id="avatarPreview" class="avatar-upload-preview ${currentUser.avatarUrl ? '' : 'hidden'}" src="${currentUser.avatarUrl ? escapeHtml(currentUser.avatarUrl) : ''}">
       ${!currentUser.avatarUrl ? `<div class="avatar-upload-preview" style="display:flex;align-items:center;justify-content:center;font-size:32px;color:var(--ink-soft);" id="avatarPlaceholder">${escapeHtml(currentUser.username.charAt(0).toUpperCase())}</div>` : ''}
       <div class="field" style="text-align:left;">
+        <label>アイコン画像</label>
         <input type="file" id="f_avatar" accept="image/*">
+      </div>
+      <div class="field" style="text-align:left;">
+        <label>自己紹介</label>
+        <textarea id="f_bio" placeholder="好きなジャンル、最近ハマってるゲームなど自由に" maxlength="200">${escapeHtml(currentUser.bio || '')}</textarea>
       </div>
       <div class="modal-actions">
         <span></span>
@@ -644,22 +693,37 @@ $('avatarBtn').addEventListener('click', ()=>{
   overlay.addEventListener('click', (e)=>{ if(e.target===overlay) overlay.remove(); });
 
   overlay.querySelector('#avatarSaveBtn').addEventListener('click', async ()=>{
-    const file = overlay.querySelector('#f_avatar').files[0];
-    if(!file){ showToast('画像を選択してください'); return; }
     const saveBtn = overlay.querySelector('#avatarSaveBtn');
     saveBtn.disabled = true;
-    const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
-    const path = `${currentUser.id}/avatar-${crypto.randomUUID()}.${ext}`;
-    const {error: uploadError} = await sb.storage.from('covers').upload(path, file, {cacheControl:'3600', upsert:false});
-    if(uploadError){ showToast('アップロードに失敗しました: ' + uploadError.message); saveBtn.disabled=false; return; }
-    const {data: urlData} = sb.storage.from('covers').getPublicUrl(path);
-    const {error: updateError} = await sb.from('profiles').update({avatar_url: urlData.publicUrl}).eq('id', currentUser.id);
+
+    const file = overlay.querySelector('#f_avatar').files[0];
+    const bio = overlay.querySelector('#f_bio').value.trim();
+    let avatarUrl = currentUser.avatarUrl || null;
+
+    if(file){
+      const ext = (file.name.split('.').pop() || 'jpg').toLowerCase();
+      const path = `${currentUser.id}/avatar-${crypto.randomUUID()}.${ext}`;
+      const {error: uploadError} = await sb.storage.from('covers').upload(path, file, {cacheControl:'3600', upsert:false});
+      if(uploadError){ showToast('アップロードに失敗しました: ' + uploadError.message); saveBtn.disabled=false; return; }
+      const {data: urlData} = sb.storage.from('covers').getPublicUrl(path);
+      avatarUrl = urlData.publicUrl;
+    }
+
+    const {error: updateError} = await sb.from('profiles').update({avatar_url: avatarUrl, bio}).eq('id', currentUser.id);
     saveBtn.disabled = false;
     if(updateError){ showToast('保存に失敗しました: ' + updateError.message); return; }
-    currentUser.avatarUrl = urlData.publicUrl;
+
+    currentUser.avatarUrl = avatarUrl;
+    currentUser.bio = bio;
     updateAvatarUI();
+    if(viewableProfiles.has(currentUser.id)){
+      const p = viewableProfiles.get(currentUser.id);
+      p.avatar_url = avatarUrl;
+      p.bio = bio;
+    }
+    if(viewingUserId === currentUser.id) renderViewingProfile(currentUser.id);
     overlay.remove();
-    showToast('アイコンを更新しました');
+    showToast('プロフィールを更新しました');
   });
 });
 

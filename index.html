@@ -77,16 +77,40 @@
     <div class="stat-strip" id="statStrip"></div>
   </div>
 
+  <div class="viewing-profile" id="viewingProfile">
+    <div class="avatar-circle" id="viewingAvatarWrap">
+      <img id="viewingAvatarImg" class="hidden" alt="">
+      <span id="viewingAvatarInitial"></span>
+    </div>
+    <div class="speech-bubble" id="viewingBio"></div>
+  </div>
+
   <div class="controls">
     <div class="search-box">
       <input type="text" id="searchInput" placeholder="タイトルで検索...">
     </div>
     <div class="tabs" id="statusTabs"></div>
     <select class="sort-select" id="sortSelect">
-      <option value="new">更新が新しい順</option>
-      <option value="rating">評価が高い順</option>
-      <option value="year">プレイ年が新しい順</option>
-      <option value="title">タイトル順</option>
+      <optgroup label="更新日時">
+        <option value="new_desc">更新が新しい順</option>
+        <option value="new_asc">更新が古い順</option>
+      </optgroup>
+      <optgroup label="評価">
+        <option value="rating_desc">評価が高い順</option>
+        <option value="rating_asc">評価が低い順</option>
+      </optgroup>
+      <optgroup label="プレイ時間">
+        <option value="hours_desc">プレイ時間が長い順</option>
+        <option value="hours_asc">プレイ時間が短い順</option>
+      </optgroup>
+      <optgroup label="プレイ年">
+        <option value="year_desc">プレイ年が新しい順</option>
+        <option value="year_asc">プレイ年が古い順</option>
+      </optgroup>
+      <optgroup label="タイトル">
+        <option value="title_asc">タイトル順（あ→ん）</option>
+        <option value="title_desc">タイトル順（ん→あ）</option>
+      </optgroup>
     </select>
     <button class="ghost-btn" id="exportBtn" title="表示中の記録をファイルに書き出す">書き出し</button>
     <button class="ghost-btn hidden" id="importBtn" title="書き出したファイルを読み込む">読み込み</button>
