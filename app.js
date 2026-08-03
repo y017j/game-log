@@ -27,6 +27,7 @@ let sortMode = 'new_desc';
 let dataLoaded = false;
 let authMode = 'login';        // 'login' | 'signup'
 let viewableProfiles = new Map(); // id -> {id, username, avatar_url, bio}
+let platformOptionsList = [];  // スマホ(datalist非対応環境)向けの候補一覧
 
 const $ = (id) => document.getElementById(id);
 
@@ -273,9 +274,9 @@ async function loadGames(){
 }
 
 function refreshPlatformOptions(){
-  const unique = Array.from(new Set(games.map(g=>g.platform).filter(Boolean)));
+  platformOptionsList = Array.from(new Set(games.map(g=>g.platform).filter(Boolean))).sort((a,b)=>a.localeCompare(b,'ja'));
   const list = $('platformOptions');
-  if(list) list.innerHTML = unique.map(p=>`<option value="${escapeHtml(p)}"></option>`).join('');
+  if(list) list.innerHTML = platformOptionsList.map(p=>`<option value="${escapeHtml(p)}"></option>`).join('');
 }
 
 function dbToGame(row){
@@ -494,7 +495,10 @@ function openModal(id){
       <div class="row2">
         <div class="field">
           <label>プラットフォーム</label>
-          <input type="text" id="f_platform" list="platformOptions" value="${escapeHtml(formState.platform)}" placeholder="Switch など">
+          <div class="autocomplete-wrap">
+            <input type="text" id="f_platform" list="platformOptions" autocomplete="off" value="${escapeHtml(formState.platform)}" placeholder="Switch など">
+            <div class="suggestion-list hidden" id="platformSuggestions"></div>
+          </div>
         </div>
         <div class="field">
           <label>プレイ時間（h）</label>
@@ -556,6 +560,32 @@ function openModal(id){
     }
   }
   applyBacklogLock();
+
+  const platformInput = overlay.querySelector('#f_platform');
+  const platformSuggestions = overlay.querySelector('#platformSuggestions');
+  function renderPlatformSuggestions(){
+    const q = platformInput.value.trim().toLowerCase();
+    const matches = platformOptionsList.filter(p => !q || p.toLowerCase().includes(q));
+    if(matches.length === 0){
+      platformSuggestions.classList.add('hidden');
+      platformSuggestions.innerHTML = '';
+      return;
+    }
+    platformSuggestions.innerHTML = matches.map(p=>`<div class="suggestion-item" data-val="${escapeHtml(p)}">${escapeHtml(p)}</div>`).join('');
+    platformSuggestions.classList.remove('hidden');
+  }
+  platformInput.addEventListener('focus', renderPlatformSuggestions);
+  platformInput.addEventListener('input', renderPlatformSuggestions);
+  platformInput.addEventListener('blur', ()=>{
+    setTimeout(()=>platformSuggestions.classList.add('hidden'), 150);
+  });
+  platformSuggestions.addEventListener('pointerdown', (e)=>{
+    const item = e.target.closest('.suggestion-item');
+    if(!item) return;
+    e.preventDefault(); // inputのblurより先に発火させ、値をセットしてから閉じる
+    platformInput.value = item.dataset.val;
+    platformSuggestions.classList.add('hidden');
+  });
 
   overlay.querySelector('#f_cover').addEventListener('change', (e)=>{
     const file = e.target.files[0];
