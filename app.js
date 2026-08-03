@@ -667,7 +667,7 @@ $('avatarBtn').addEventListener('click', ()=>{
       </div>
       <div class="field" style="text-align:left;">
         <label>自己紹介</label>
-        <textarea id="f_bio" placeholder="好きなジャンル、最近ハマってるゲームなど自由に" maxlength="200">${escapeHtml(currentUser.bio || '')}</textarea>
+        <textarea id="f_bio" maxlength="200">${escapeHtml(currentUser.bio || '')}</textarea>
       </div>
       <div class="modal-actions">
         <span></span>
