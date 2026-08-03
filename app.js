@@ -415,7 +415,7 @@ function cardHtml(g){
       ${g.comment ? `<p class="card-comment">${escapeHtml(g.comment)}</p>` : ''}
       <div class="card-footer">
         <span>${g.hours ? g.hours+'h' : '--'}</span>
-        <span>${g.year ? g.year+'年' : '年未記入'}</span>
+        <span>${g.year ? g.year+'年' : (g.status==='backlog' ? '' : '年未記入')}</span>
       </div>
     </div>`;
 }
@@ -449,7 +449,7 @@ function openViewModal(g){
         </div>
         <div class="view-field">
           <div class="vlabel">プレイしていた年</div>
-          <div class="vvalue">${g.year ? g.year+'年' : '未記入'}</div>
+          <div class="vvalue">${g.year ? g.year+'年' : (g.status==='backlog' ? '-' : '未記入')}</div>
         </div>
       </div>
       ${g.comment ? `
@@ -506,7 +506,7 @@ function openModal(id){
         <div class="status-picker" id="f_status">
           ${STATUSES.map(s=>`<button type="button" data-key="${s.key}" class="${formState.status===s.key?'on':''}">${s.label}</button>`).join('')}
         </div>
-        <div class="field-hint hidden" id="backlogHint">積みゲーの間は評価・プレイ時間を入力できません</div>
+        <div class="field-hint hidden" id="backlogHint">積みゲーの間は評価・プレイ時間・プレイしていた年を入力できません</div>
       </div>
       <div class="field">
         <label>評価（5段階）</label>
@@ -538,13 +538,21 @@ function openModal(id){
 
   function applyBacklogLock(){
     const isBacklog = currentStatus === 'backlog';
+    const yearEl = overlay.querySelector('#f_year');
+    const hoursEl = overlay.querySelector('#f_hours');
+
     overlay.querySelector('#f_rating').classList.toggle('disabled', isBacklog);
-    overlay.querySelector('#f_hours').disabled = isBacklog;
+    hoursEl.disabled = isBacklog;
+    yearEl.disabled = isBacklog;
     overlay.querySelector('#backlogHint').classList.toggle('hidden', !isBacklog);
+
     if(isBacklog){
       currentRating = 0;
       overlay.querySelectorAll('#f_rating .blk').forEach(b=>b.classList.remove('on'));
-      overlay.querySelector('#f_hours').value = '';
+      hoursEl.value = '';
+      yearEl.value = '';
+    }else if(currentStatus === 'playing'){
+      yearEl.value = new Date().getFullYear();
     }
   }
   applyBacklogLock();
